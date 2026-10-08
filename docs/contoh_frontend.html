@@ -1,0 +1,70 @@
+<!--
+  Contoh integrasi frontend ke API verifikasi klaim.
+  Ini BUKAN UI produksi -- cuma referensi alur pemanggilan endpoint yang benar:
+  upload -> dapat job_id -> polling status -> ambil hasil & link download.
+
+  Ganti API_BASE sesuai alamat server API kamu.
+-->
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Contoh Integrasi API Verifikasi Klaim</title></head>
+<body>
+  <h3>Upload dokumen klaim</h3>
+  <input type="text" id="kodeRs" placeholder="Kode RS, mis. RS001" value="RS001"><br><br>
+  <input type="file" id="fileKlaim" multiple><br><br>
+  <button onclick="uploadKlaim()">Verifikasi</button>
+  <pre id="status"></pre>
+
+  <script>
+    const API_BASE = "http://localhost:8000"; // ganti sesuai alamat server API-mu
+
+    async function uploadKlaim() {
+      const kodeRs = document.getElementById("kodeRs").value;
+      const files = document.getElementById("fileKlaim").files;
+      const statusEl = document.getElementById("status");
+
+      if (!files.length) { alert("Pilih file PDF dulu"); return; }
+
+      const formData = new FormData();
+      formData.append("kode_rs", kodeRs);
+      for (const f of files) formData.append("files", f);
+
+      statusEl.textContent = "Mengunggah...";
+
+      // 1. Kirim file, dapat job_id
+      const resUpload = await fetch(`${API_BASE}/klaim/verifikasi`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!resUpload.ok) {
+        statusEl.textContent = "Gagal upload: " + (await resUpload.text());
+        return;
+      }
+      const { job_id } = await resUpload.json();
+      statusEl.textContent = `Job dikirim (${job_id}), menunggu diproses...`;
+
+      // 2. Polling status setiap 3 detik sampai selesai atau error
+      const interval = setInterval(async () => {
+        const resStatus = await fetch(`${API_BASE}/jobs/${job_id}`);
+        const job = await resStatus.json();
+        statusEl.textContent = `Status: ${job.status} -- ${job.pesan || ""}`;
+
+        if (job.status === "done") {
+          clearInterval(interval);
+          statusEl.textContent += `\n\nKeputusan: ${job.keputusan?.status}`;
+          statusEl.textContent += `\nConfidence: ${job.confidence_score}%`;
+          statusEl.textContent += `\nJumlah item: ${job.jumlah_item} (dari ${job.jumlah_item_diekstrak} diekstrak)`;
+
+          // 3. Link download laporan
+          const linkXlsx = `${API_BASE}/jobs/${job_id}/download/xlsx`;
+          const linkMd = `${API_BASE}/jobs/${job_id}/download/md`;
+          statusEl.innerHTML += `\n\n<a href="${linkXlsx}">Download Excel</a> | <a href="${linkMd}">Download Markdown</a>`;
+        } else if (job.status === "error") {
+          clearInterval(interval);
+          statusEl.textContent += `\n\nERROR: ${job.pesan}`;
+        }
+      }, 3000);
+    }
+  </script>
+</body>
+</html>

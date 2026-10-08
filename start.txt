@@ -1,0 +1,2 @@
+python claim_verifier.py --kode-rs RS001 --claim-docs "TAGIHAN.pdf" --dsn "postgresql://admin:12345678@localhost:5433/poc_rdbms"
+python claim_verifier.py --kode-rs RS001 --claim-docs "TAGIHAN.pdf" --dsn "postgresql://admin:12345678@localhost:5433/poc_rdbms"

@@ -1,0 +1,39 @@
+# Virtual Environment
+venv/
+.venv/
+env/
+
+# Node.js
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# Application Data & Cache
+data/
+backend/data/
+.env
+backend/.env
+frontend/.env
+uploads/
+backend/uploads/
+_cache_items_*
+_cache_teks_*
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

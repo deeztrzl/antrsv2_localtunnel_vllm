@@ -1,0 +1,67 @@
+﻿Kategori,Item,Tanggal,Qty,Harga Ditagih,Tarif RS,Selisih,Keterangan,Sumber Tarif
+Radiologi/Laboratorium/Obat/Kamar/Dokter/Tindakan/dll,MSCT WHOLE ABDOMEN (K),2026-05-04,1,0,0,0,Tarif tidak ditemukan,
+Instalasi Rawat Inap,Instalasi Rawat Inap,2026-06-09,1,23559342,N/A,N/A,Tidak teranalisis (cek manual),
+Tagihan Rawat Inap,Tagihan Rawat Inap a.n ASEP MULJANAK,2026-06-09,1,23559342,N/A,N/A,Tidak teranalisis (cek manual),
+Instalasi Rawat Inap,INSTALASI RAWAT INAP,2026-05-04 s/d 2026-05-07,3,9829965,N/A,N/A,Tidak teranalisis (cek manual),
+Instalasi Diagnostic Center,INSTALASI DIAGNOSTIC CENTER,,1,9650552,N/A,N/A,Tidak teranalisis (cek manual),
+Instalasi Laboratorium,INSTALASI LABORATORIUM,,1,1134690,N/A,N/A,Tidak teranalisis (cek manual),
+Instalasi Gawat Darurat,INSTALASI GAWAT DARURAT,,1,2257941,0,2257941,Tarif tidak ditemukan,
+Tindakan,#KONSULTASI/VISITE RAWAT INAP DOKTER UMUM || dr. Fairuz Raffelstha,2026-05-04,1,50000,0,50000,Tarif tidak ditemukan,
+Tindakan,"#KONSULTASI BY PHONE || Adra Syahrissa Firmansyah, dr., Sp.B, FICS",2026-05-06,1,50000,0,50000,Tarif tidak ditemukan,
+Tindakan,"#VISITE DOKTER SPESIALIS BPJS TK || Adra Syahrissa Firmansyah, dr, Sp.B, FICS",2026-05-04,1,175000,0,175000,Tarif tidak ditemukan,
+Tindakan,#GANTI VERBAN SEDANG (6-10 CM),2026-05-07,1,308000,0,308000,Tarif tidak ditemukan,
+Tindakan,#AFF INFUS - BPJS TK,2026-05-07,1,100000,0,100000,Tarif tidak ditemukan,
+Obat,Trijec 1 g POW,2026-05-05,3,348096,0,348096,Tarif tidak ditemukan,
+Obat,Altamed Hand Glove S,2026-05-05,10,853,N/A,N/A,Tidak teranalisis (cek manual),
+Obat,Prosogran 30 mg SOL,2026-05-06,1,198557,N/A,N/A,Tidak teranalisis (cek manual),
+Obat,Vomceran 2 mg/mL SOL 4 mL,2026-05-06,3,106560,N/A,N/A,Tidak teranalisis (cek manual),
+Obat,Farmadol 10 mg/mL SOL 100 mL,2026-05-06,1,177600,N/A,N/A,Tidak teranalisis (cek manual),
+Obat,Repacor 40 mg POW,2026-05-06,1,191808,N/A,N/A,Tidak teranalisis (cek manual),
+Obat,Vasofix Saf IV cath w/ Wing 20G x 1¼,2026-05-06,2,20140,0,20140,Tarif tidak ditemukan,
+Obat,Vasofix Saf IV cath w/ Wing 22G x 1,2026-05-06,2,20140,N/A,N/A,Tidak teranalisis (cek manual),
+Obat,Tegaderm 6 CM X 7 CM,2026-05-06,1,11627,N/A,N/A,Tidak teranalisis (cek manual),
+Obat,"Ultracet 37,5-325 TAB",2026-05-07,10,10921,N/A,N/A,Tidak teranalisis (cek manual),
+Obat,Starcef 200 mg CAP,2026-05-07,10,51148,N/A,N/A,Tidak teranalisis (cek manual),
+Obat,"NaCl 0,9 % SOL 500 mL-SATO (JS)",2026-05-07,1,9821,N/A,N/A,Tidak teranalisis (cek manual),
+Obat,Sagestam 1 mg/g CRM 10 g,2026-05-07,1,19750,0,19750,Tarif tidak ditemukan,
+Obat,Onemed D Spike Inf 2040,2026-05-07,1,4285,N/A,N/A,Tidak teranalisis (cek manual),
+Obat,SAGA Kasa Hidrofil 16cmx 16 cm,2026-05-07,6,7680,N/A,N/A,Tidak teranalisis (cek manual),
+Radiologi/Laboratorium/Obat/Kamar/Dokter/Tindakan/dll,#MSCT 3D KEPALA (TK),2026-05-04,1,3138451,N/A,N/A,Tidak teranalisis (cek manual),
+Radiologi/Laboratorium/Obat/Kamar/Dokter/Tindakan/dll,#MSCT WHOLE ABDOMEN (K),2026-05-04,1,5595451,N/A,N/A,Tidak teranalisis (cek manual),
+Radiologi/Laboratorium/Obat/Kamar/Dokter/Tindakan/dll,#ART GENU / PATELLA KIRI,2026-05-04,1,289800,N/A,N/A,Tidak teranalisis (cek manual),
+Radiologi/Laboratorium/Obat/Kamar/Dokter/Tindakan/dll,#ART. CUBITI / ELBOW JOINT KIRI,2026-05-04,1,289800,0,289800,Tarif tidak ditemukan,
+Radiologi/Laboratorium/Obat/Kamar/Dokter/Tindakan/dll,#THORAX AP / PA,2026-05-04,1,337050,N/A,N/A,Tidak teranalisis (cek manual),
+Laboratorium,#HEMATOLOGI LENGKAP,2026-05-04,1,78750,N/A,N/A,Tidak teranalisis (cek manual),
+Laboratorium,#PROTROMBIN TIME / PT,2026-05-04,1,174603,N/A,N/A,Tidak teranalisis (cek manual),
+Laboratorium,#APTT,2026-05-04,1,190619,N/A,N/A,Tidak teranalisis (cek manual),
+Laboratorium,#UREUM,2026-05-04,1,48125,N/A,N/A,Tidak teranalisis (cek manual),
+Laboratorium,#CREATININ,2026-05-04,1,48125,0,48125,Tarif tidak ditemukan,
+Laboratorium,#GULA DARAH SEWAKTU,2026-05-04,1,45150,0,45150,Tarif tidak ditemukan,
+Laboratorium,#NATRIUM,2026-05-04,1,183106,0,183106,Tarif tidak ditemukan,
+Laboratorium,#KALIUM,2026-05-04,1,183106,0,183106,Tarif tidak ditemukan,
+Laboratorium,#CHLORIDA,2026-05-04,1,183106,0,183106,Tarif tidak ditemukan,
+Tindakan,KONSULTASI DOKTER UMUM IGD BPJS TK || SYAHRIL MAULANA RASAHAN DR.,2026-05-04,1,100000,0,100000,Tarif tidak ditemukan,
+Tindakan,#SARANA IGD,2026-05-04,1,330000,50000,280000,Sesuai tarif,Tarif Rawat Inap 2026
+Tindakan,#PASANG INFUS - BPJS TK,2026-05-04,1,150000,150000,0,Sesuai tarif,Tarif PELNI 2026
+OBAT DAN ALKES,Prosogan 30 mg SOL,2026-05-04,1,198557,198557,0,Sesuai tarif,Daftar Harga Obat
+OBAT DAN ALKES,Vomceran 2 mg/mL SOL 4 mL,2026-05-04,1,106560,106560,0,Sesuai tarif,Daftar Harga Obat
+OBAT DAN ALKES,Farmadol 10 mg/mL SOL 100 mL,2026-05-04,1,177600,177600,0,Sesuai tarif,Daftar Harga Obat
+OBAT DAN ALKES,Tetagam P PFS 250 IU SOL,2026-05-04,1,422368,422368,0,Sesuai tarif,Daftar Harga Obat
+OBAT DAN ALKES,Infusan RL DP SOL 500mL,2026-05-04,1,31684,18.232,31665.768,Sesuai tarif,Daftar Harga Obat
+OBAT DAN ALKES,Repacor 40 mg POW,2026-05-04,1,191808,164.813,191643.187,Sesuai tarif,Daftar Harga Obat
+OBAT DAN ALKES,Onemed Disp Syr Tb 26G x 1/2 1 mL,2026-05-04,1,1108,3.324,1104.676,Sesuai tarif,Daftar Harga Obat
+OBAT DAN ALKES,Vasofix Saf IV cath w/ Wing 20G x 1¼,2026-05-04,1,20140,284.16,19855.84,Sesuai tarif,Daftar Harga Obat
+OBAT DAN ALKES,CONNECTA 3 Way Stopcock 10cm 394995,2026-05-04,1,63680,54.648,63625.352,Sesuai tarif,Daftar Harga Obat
+OBAT DAN ALKES,Intrafix Safeset InfSet 180 cm,2026-05-04,1,51149,2.541,51146.459,Sesuai tarif,Tarif Rawat Inap 2026
+OBAT DAN ALKES,Tegaderm 6 CM X 7 CM,2026-05-04,1,11627,0,11627,Tarif tidak ditemukan,
+OBAT DAN ALKES,Terumo Disp Syr 10 ml,2026-05-04,3,42624,N/A,N/A,Tidak teranalisis (cek manual),
+OBAT DAN ALKES,Terumo Disp Syr 5 ml,2026-05-04,1,10940,N/A,N/A,Tidak teranalisis (cek manual),
+OBAT DAN ALKES,Trijec 1 g POW,2026-05-04,1,348096,N/A,N/A,Tidak teranalisis (cek manual),
+Radiologi/Laboratorium/Obat/Kamar/Dokter/Tindakan/dll,MSCT KEPALA (TK),,1,3138450,N/A,N/A,Tidak teranalisis (cek manual),
+Radiologi/Laboratorium/Obat/Kamar/Dokter/Tindakan/dll,MSCT ABDOMEN ATAS (K),,1,4236750,N/A,N/A,Tidak teranalisis (cek manual),
+Radiologi/Laboratorium/Obat/Kamar/Dokter/Tindakan/dll,MSCT ABDOMEN BAWAH / PELVIS (K),,1,4236750,2668050,1568700,Sesuai tarif,Tarif Rawat Inap 2026
+Radiologi/Laboratorium/Obat/Kamar/Dokter/Tindakan/dll,MSCT THORAX (TK),,1,2668050,2668050,0,Sesuai tarif,Tarif Rawat Inap 2026
+Radiologi/Laboratorium/Obat/Kamar/Dokter/Tindakan/dll,MSCT 3D KEPALA (TK),,1,3138450,3138450,0,Sesuai tarif,Tarif Rawat Inap 2026
+Radiologi/Laboratorium/Obat/Kamar/Dokter/Tindakan/dll,MSCT WHOLE ABDOMEN (K),,1,5595450,5595450,0,Sesuai tarif,Tarif Rawat Inap 2026
+Radiologi/Laboratorium/Obat/Kamar/Dokter/Tindakan/dll,MSCT THORAX (TK),,1,2668050,2668050,0,Sesuai tarif,Tarif Rawat Inap 2026
+,,,TOTAL,110578951,17843662.718000002,6580688.282,,
