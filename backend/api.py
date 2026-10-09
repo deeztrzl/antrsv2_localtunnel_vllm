@@ -14,9 +14,18 @@ selesai. Ini supaya frontend tidak perlu menunggu 1-2 menit dalam satu request H
 
 Konfigurasi lewat file .env (lihat .env.example):
     DATABASE_URL=postgresql://admin:pass@localhost:5433/poc_rdbms
-    LLM_BASE_URL=https://xxxx.loca.lt/v1
-    LLM_MODEL=nama-model-dari-/v1/models
+
+    # Server VLM (baca dokumen / gambar). Kalau VLM_BASE_URL kosong, server LLM dipakai untuk keduanya.
+    VLM_BASE_URL=https://aaaa.trycloudflare.com/v1
+    VLM_MODEL=nama-model-vlm-dari-/v1/models
+    VLM_API_KEY=EMPTY
+    VLM_MAX_CONTEXT=8192
+
+    # Server LLM (interpretasi / analisis)
+    LLM_BASE_URL=https://bbbb.trycloudflare.com/v1
+    LLM_MODEL=nama-model-llm-dari-/v1/models
     LLM_API_KEY=EMPTY
+    LLM_MAX_CONTEXT=32768
 
 Jalankan:
     uvicorn api:app --host 0.0.0.0 --port 8000 --reload
@@ -51,6 +60,7 @@ from pdf_to_db import (
     extract_pdf,
     insert_dokumen_dan_chunks,
 )
+import claim_verifier as cv  # dipakai untuk membaca MODEL_EKSTRAKSI / MODEL_ANALISIS terbaru (nilainya berubah saat muat_ulang_konfigurasi)
 from claim_verifier import (
     analisis_klaim,
     baca_semua_dokumen_klaim,
@@ -105,11 +115,19 @@ def get_embed_model() -> SentenceTransformer:
 
 
 def get_llm_client() -> OpenAI:
-    """Client dibuat baru tiap job dari environment terbaru (lihat _segarkan_konfigurasi), tanpa cache."""
+    """Client server LLM (analisis). Dibuat baru tiap job dari environment terbaru (lihat _segarkan_konfigurasi), tanpa cache."""
     base_url = os.environ.get("LLM_BASE_URL")
     if not base_url:
         raise RuntimeError("LLM_BASE_URL belum diset di file .env")
     return buat_llm_client(base_url, os.environ.get("LLM_API_KEY", "EMPTY"))
+
+
+def get_vlm_client() -> OpenAI:
+    """Client server VLM (baca dokumen/gambar). Kalau VLM_BASE_URL kosong, memakai server LLM (URL dan API key-nya)."""
+    base_url = os.environ.get("VLM_BASE_URL")
+    if not base_url:
+        return get_llm_client()
+    return buat_llm_client(base_url, os.environ.get("VLM_API_KEY", "EMPTY"))
 
 
 def _segarkan_konfigurasi() -> None:
@@ -130,6 +148,8 @@ def startup():
         print("[WARN] DATABASE_URL belum diset -- endpoint yang butuh database akan gagal.")
     if not os.environ.get("LLM_BASE_URL"):
         print("[WARN] LLM_BASE_URL belum diset -- endpoint verifikasi klaim akan gagal.")
+    if not os.environ.get("VLM_BASE_URL"):
+        print("[INFO] VLM_BASE_URL belum diset -- server LLM dipakai juga untuk membaca dokumen/gambar.")
 
 
 # ---------------------------------------------------------------------------
@@ -220,16 +240,19 @@ def upload_tarif(
 
 def _job_verifikasi_klaim(job_id: str, pdf_paths: list, kode_rs: str):
     try:
-        set_job(job_id, status="processing", pesan="Memeriksa server LLM...")
+        set_job(job_id, status="processing", pesan="Memeriksa server VLM & LLM...")
         _segarkan_konfigurasi()
-        client = get_llm_client()
-        cek_server_llm(client)  # gagal cepat (<20 dtk) kalau tunnel mati, sebelum PDF dibaca
+        client_llm = get_llm_client()   # analisis / interpretasi
+        client_vlm = get_vlm_client()   # baca dokumen / gambar
+        # gagal cepat (<20 dtk per server) kalau tunnel mati, sebelum PDF dibaca
+        cek_server_llm(client_vlm, [cv.MODEL_EKSTRAKSI])
+        cek_server_llm(client_llm, [cv.MODEL_ANALISIS])
 
         set_job(job_id, pesan="Membaca dokumen klaim...")
         teks_klaim, gambar_halaman = baca_semua_dokumen_klaim([str(p) for p in pdf_paths])
 
         set_job(job_id, pesan="Ekstraksi item tagihan...")
-        items = ekstrak_item_tagihan(client, teks_klaim, gambar_halaman)
+        items = ekstrak_item_tagihan(client_vlm, teks_klaim, gambar_halaman)
 
         set_job(job_id, pesan=f"Mencari tarif pembanding untuk {len(items)} item...")
         conn = psycopg2.connect(DATABASE_URL)
@@ -240,7 +263,8 @@ def _job_verifikasi_klaim(job_id: str, pdf_paths: list, kode_rs: str):
 
         set_job(job_id, pesan="Analisis akhir...")
         system_prompt = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
-        hasil = analisis_klaim(client, system_prompt, teks_klaim, items)
+        hasil = analisis_klaim(client_llm, system_prompt, teks_klaim, items,
+                               gambar_halaman=gambar_halaman, client_vlm=client_vlm)
 
         stem = f"laporan_{job_id}"
         md_path = OUTPUT_DIR / f"{stem}.md"
