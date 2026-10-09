@@ -1,23 +1,26 @@
 #!/usr/bin/env python3
 """
-claim_verifier.py  (versi vLLM)
-===============================
+claim_verifier.py  (versi vLLM, dua server: VLM + LLM)
+======================================================
 Agent verifikator klaim RS & JKK, jalan lewat command line.
 
 Alur kerja (3 tahap, makanya disebut "agent" bukan sekadar 1x panggilan LLM):
 
     1. EKSTRAKSI  : baca semua dokumen klaim (invoice, resume medis, PLKK, dst)
-                     -> minta LLM mengekstrak daftar item tagihan jadi JSON
+                     -> minta VLM (server 1) mengekstrak daftar item tagihan jadi JSON
     2. RETRIEVAL  : untuk tiap item tagihan, cari tarif pembanding paling mirip
                      di database `dokumen_chunk` (vector search, RS yang sama)
     3. ANALISIS   : kirim dokumen klaim + item tagihan + tarif pembanding hasil
-                     retrieval ke LLM, memakai system prompt verifikator,
+                     retrieval ke LLM (server 2), memakai system prompt verifikator,
                      minta hasil akhir dalam JSON terstruktur
 
     -> disimpan sebagai laporan_<kode_rs>_<tanggal>.md, .xlsx, dan .csv
 
-LLM dipanggil lewat server vLLM (OpenAI-compatible API), misalnya yang
-diakses lewat tunnel.
+Model dipanggil lewat dua server vLLM (OpenAI-compatible API), misalnya yang
+diakses lewat tunnel:
+    - VLM (VLM_BASE_URL)  : membaca dokumen / gambar scan (ekstraksi)
+    - LLM (LLM_BASE_URL)  : interpretasi / analisis (teks saja)
+Kalau VLM_BASE_URL kosong, server LLM dipakai untuk keduanya.
 
 PENTING (batas tanggung jawab tool ini):
     Ini adalah decision-support tool. Keputusan akhir klaim tetap harus
@@ -25,7 +28,8 @@ PENTING (batas tanggung jawab tool ini):
     boleh dipakai untuk membuat keputusan otomatis tanpa review manusia.
 
 Cara pakai:
-    Salin .env.example jadi .env lalu isi LLM_BASE_URL, LLM_MODEL, (opsional) LLM_API_KEY.
+    Salin .env.example jadi .env lalu isi VLM_BASE_URL, VLM_MODEL, LLM_BASE_URL, LLM_MODEL,
+    (opsional) VLM_API_KEY / LLM_API_KEY.
     URL tunnel berubah? Cukup edit .env, tidak perlu ubah kode.
 
     python claim_verifier.py \
@@ -72,11 +76,13 @@ from pdf_to_db import EMBEDDING_MODEL_NAME, build_markdown_and_json, extract_pdf
 # (override=True), supaya tidak ada nilai lama yang tertinggal di shell diam-diam menimpa .env.
 load_dotenv(Path(__file__).parent / ".env", override=True)
 
-# vLLM biasanya hanya men-serve satu model, jadi kedua tahap memakai model yang sama.
-# Isi lewat env var LLM_MODEL (lihat nama persisnya di: curl <base_url>/models).
-DEFAULT_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"  # sesuaikan dengan model yang di-serve vLLM
-# Opsional: model berbeda per tahap (mis. Gemini flash-lite untuk ekstraksi, flash untuk analisis).
-MODEL_EKSTRAKSI = os.environ.get("LLM_MODEL_EKSTRAKSI") or os.environ.get("LLM_MODEL", DEFAULT_MODEL)
+# Dua server berbeda:
+#   - VLM (VLM_BASE_URL, VLM_MODEL)  -> tahap ekstraksi (baca teks + gambar scan)
+#   - LLM (LLM_BASE_URL, LLM_MODEL)  -> tahap analisis (interpretasi, narasi medis/JKK)
+# Isi nama model persis seperti di: curl <base_url>/models
+DEFAULT_MODEL = "Qwen/Qwen2.5-14B-Instruct"      # default untuk LLM analisis
+DEFAULT_VLM = "Qwen/Qwen2.5-VL-7B-Instruct"      # default untuk VLM ekstraksi
+MODEL_EKSTRAKSI = os.environ.get("VLM_MODEL") or os.environ.get("LLM_MODEL_EKSTRAKSI") or DEFAULT_VLM
 MODEL_ANALISIS = os.environ.get("LLM_MODEL_ANALISIS") or os.environ.get("LLM_MODEL", DEFAULT_MODEL)
 
 # Batas token output. Harus lebih kecil dari (max-model-len server - token prompt).
@@ -88,8 +94,10 @@ MAX_OUTPUT_ANALISIS = int(os.environ.get("LLM_MAX_OUTPUT_ANALISIS", 8192))
 EKSTRAKSI_CHUNK_CHARS = int(os.environ.get("LLM_EKSTRAKSI_CHUNK_CHARS", 4000))
 
 # --- Analisis berjenjang (untuk server dengan context window kecil) ---
-# Isi LLM_MAX_CONTEXT sama dengan --max-model-len di server vLLM.
+# LLM_MAX_CONTEXT = --max-model-len server LLM (analisis).
+# VLM_MAX_CONTEXT = --max-model-len server VLM (ekstraksi). Bisa berbeda.
 LLM_MAX_CONTEXT = int(os.environ.get("LLM_MAX_CONTEXT", 32768))
+VLM_MAX_CONTEXT = int(os.environ.get("VLM_MAX_CONTEXT", 8192))
 # auto = pakai analisis penuh kalau muat, selain itu berjenjang. Bisa dipaksa: penuh / berjenjang.
 LLM_ANALISIS_MODE = os.environ.get("LLM_ANALISIS_MODE", "auto").lower()
 ANALISIS_BATCH_ITEM = int(os.environ.get("LLM_ANALISIS_BATCH_ITEM", 10))   # item per panggilan
@@ -136,11 +144,14 @@ def _tunggu_jeda() -> None:
         _terakhir_panggil[0] = time.time()
 
 
-def panggil_llm(client: OpenAI, max_retries: int = 6, delay_awal: int = 5, label: str = "LLM call", usage_log: list = None, **kwargs):
+def panggil_llm(client: OpenAI, max_retries: int = 6, delay_awal: int = 5, label: str = "LLM call", usage_log: list = None, max_context: int = None, **kwargs):
     """Wrapper client.chat.completions.create dengan retry + exponential backoff.
-    Kalau usage_log (list) diberikan, catat durasi & jumlah token panggilan ini ke situ."""
+    Kalau usage_log (list) diberikan, catat durasi & jumlah token panggilan ini ke situ.
+    max_context = context window server yang dituju (VLM_MAX_CONTEXT atau LLM_MAX_CONTEXT);
+    default LLM_MAX_CONTEXT."""
     delay = delay_awal
     mulai = time.time()
+    ctx = max_context or LLM_MAX_CONTEXT
 
     # Pengaman: max_tokens yang terlalu besar (mis. sama dengan seluruh context window) membuat
     # server menolak request walau prompt-nya kecil. Kecilkan otomatis sesuai sisa context.
@@ -161,15 +172,15 @@ def panggil_llm(client: OpenAI, max_retries: int = 6, delay_awal: int = 5, label
                 f"[{label}] prompt ~{taksiran_prompt} token melebihi LLM_MAX_PROMPT_TOKEN={BATAS_PROMPT_TOKEN}; "
                 f"tidak dikirim. Periksa bagian [UKURAN PROMPT] di log untuk melihat komponen yang membengkak."
             )
-        batas = LLM_MAX_CONTEXT - taksiran_prompt - 300  # 300 = cadangan untuk template chat
+        batas = ctx - taksiran_prompt - 300  # 300 = cadangan untuk template chat
         if batas < 256:
             raise RuntimeError(
-                f"Prompt terlalu besar untuk context {LLM_MAX_CONTEXT} token (perkiraan ~{taksiran_prompt} token). "
+                f"Prompt terlalu besar untuk context {ctx} token (perkiraan ~{taksiran_prompt} token). "
                 f"Kecilkan LLM_EKSTRAKSI_CHUNK_CHARS / LLM_ANALISIS_BATCH_ITEM, atau naikkan --max-model-len server."
             )
         if kwargs["max_tokens"] > batas:
             print(f"      [INFO] [{label}] max_tokens {kwargs['max_tokens']} diturunkan ke {batas} "
-                  f"(context {LLM_MAX_CONTEXT}, prompt ~{taksiran_prompt} token).")
+                  f"(context {ctx}, prompt ~{taksiran_prompt} token).")
             kwargs["max_tokens"] = batas
 
     for percobaan in range(1, max_retries + 1):
@@ -229,17 +240,18 @@ def muat_ulang_konfigurasi() -> None:
     tanpa restart proses. Dipanggil api.py di awal tiap job, jadi URL tunnel baru cukup diedit di .env.
     """
     global MODEL_EKSTRAKSI, MODEL_ANALISIS, MAX_OUTPUT_EKSTRAKSI, MAX_OUTPUT_ANALISIS, EKSTRAKSI_CHUNK_CHARS
-    global LLM_MAX_CONTEXT, LLM_ANALISIS_MODE, ANALISIS_BATCH_ITEM, TARIF_CHUNK_CHARS
+    global LLM_MAX_CONTEXT, VLM_MAX_CONTEXT, LLM_ANALISIS_MODE, ANALISIS_BATCH_ITEM, TARIF_CHUNK_CHARS
     global MAX_OUTPUT_BATCH, MAX_OUTPUT_FINAL, TOKEN_PER_GAMBAR, BATAS_PROMPT_TOKEN
     env_path = Path(__file__).parent / ".env"
     load_dotenv(env_path if env_path.exists() else None, override=True)
     e = os.environ.get
-    MODEL_EKSTRAKSI = e("LLM_MODEL_EKSTRAKSI") or e("LLM_MODEL", DEFAULT_MODEL)
+    MODEL_EKSTRAKSI = e("VLM_MODEL") or e("LLM_MODEL_EKSTRAKSI") or DEFAULT_VLM
     MODEL_ANALISIS = e("LLM_MODEL_ANALISIS") or e("LLM_MODEL", DEFAULT_MODEL)
     MAX_OUTPUT_EKSTRAKSI = int(e("LLM_MAX_OUTPUT_EKSTRAKSI", 4096))
     MAX_OUTPUT_ANALISIS = int(e("LLM_MAX_OUTPUT_ANALISIS", 8192))
     EKSTRAKSI_CHUNK_CHARS = int(e("LLM_EKSTRAKSI_CHUNK_CHARS", 4000))
     LLM_MAX_CONTEXT = int(e("LLM_MAX_CONTEXT", 32768))
+    VLM_MAX_CONTEXT = int(e("VLM_MAX_CONTEXT", 8192))
     LLM_ANALISIS_MODE = e("LLM_ANALISIS_MODE", "auto").lower()
     ANALISIS_BATCH_ITEM = int(e("LLM_ANALISIS_BATCH_ITEM", 10))
     TARIF_CHUNK_CHARS = int(e("LLM_TARIF_CHUNK_CHARS", 800))
@@ -249,10 +261,11 @@ def muat_ulang_konfigurasi() -> None:
     BATAS_PROMPT_TOKEN = int(e("LLM_MAX_PROMPT_TOKEN", 0))
 
 
-def cek_server_llm(client: OpenAI) -> list:
+def cek_server_llm(client: OpenAI, model_diharapkan: list = None) -> list:
     """
-    Cek cepat (maks ~20 detik) bahwa server LLM terjangkau SEBELUM pekerjaan berat (baca PDF, ekstraksi) dimulai.
+    Cek cepat (maks ~20 detik) bahwa server LLM/VLM terjangkau SEBELUM pekerjaan berat (baca PDF, ekstraksi) dimulai.
     Tanpa ini, tunnel yang mati baru ketahuan setelah beberapa menit dan 6x retry.
+    model_diharapkan: daftar nama model yang seharusnya ada di server ini (untuk peringatan salah nama).
     Return daftar id model di server. Raise RuntimeError dengan pesan yang bisa ditindaklanjuti.
     """
     url = str(getattr(client, "base_url", ""))
@@ -260,16 +273,16 @@ def cek_server_llm(client: OpenAI) -> list:
         daftar = [m.id for m in client.with_options(timeout=20).models.list().data]
     except Exception as e:
         if e.__class__.__name__ in ("AuthenticationError", "PermissionDeniedError"):
-            raise RuntimeError(f"Server LLM di {url} menolak API key ({e.__class__.__name__}). Cek LLM_API_KEY di .env.") from e
+            raise RuntimeError(f"Server di {url} menolak API key ({e.__class__.__name__}). Cek LLM_API_KEY / VLM_API_KEY di .env.") from e
         sebab = f" | sebab: {e.__cause__!r}" if getattr(e, "__cause__", None) else ""
         raise RuntimeError(
-            f"Server LLM tidak terjangkau di {url} ({e.__class__.__name__}{sebab}). Kalau memakai tunnel gratis "
+            f"Server tidak terjangkau di {url} ({e.__class__.__name__}{sebab}). Kalau memakai tunnel gratis "
             f"(trycloudflare/ngrok/loca.lt), URL-nya kemungkinan sudah berubah atau mati: minta URL baru, "
-            f"ubah LLM_BASE_URL di .env, lalu coba lagi."
+            f"ubah LLM_BASE_URL / VLM_BASE_URL di .env, lalu coba lagi."
         ) from e
-    for m in {MODEL_EKSTRAKSI, MODEL_ANALISIS}:
+    for m in set(model_diharapkan or []):
         if daftar and m not in daftar and not any(x.endswith("/" + m) for x in daftar):
-            print(f"      [WARN] Model '{m}' tidak ada di daftar server ({', '.join(daftar[:5])}). Cek LLM_MODEL di .env.")
+            print(f"      [WARN] Model '{m}' tidak ada di daftar server {url} ({', '.join(daftar[:5])}). Cek VLM_MODEL / LLM_MODEL di .env.")
     return daftar
 
 
@@ -478,7 +491,7 @@ def _pecah_teks(teks: str, batas: int) -> list:
 
 
 def _ekstrak_satu(client: OpenAI, bagian_sumber: str, img_bytes: bytes = None, label: str = "ekstraksi") -> list:
-    """Satu panggilan ekstraksi untuk satu potongan teks ATAU satu gambar halaman."""
+    """Satu panggilan ekstraksi untuk satu potongan teks ATAU satu gambar halaman. `client` = server VLM."""
     prompt_text = f"""Dari bagian dokumen klaim berikut, ekstrak SELURUH baris item tagihan (billing) yang ada
 di bagian ini saja (ini hanya potongan dari dokumen yang lebih panjang, jadi jangan menebak isi bagian lain).
 
@@ -506,6 +519,7 @@ Jawab HANYA dengan satu JSON object, tanpa teks lain, format:
     resp = panggil_llm(
         client,
         label=label,
+        max_context=VLM_MAX_CONTEXT,
         model=MODEL_EKSTRAKSI,
         messages=[{"role": "user", "content": content}],
         response_format={"type": "json_object"},
@@ -534,7 +548,7 @@ def ekstrak_item_tagihan(client: OpenAI, teks_klaim: str, gambar_halaman: list =
     """
     Ekstraksi dilakukan per potongan (teks dipecah per ~EKSTRAKSI_CHUNK_CHARS karakter,
     dan tiap gambar halaman dikirim sendiri-sendiri) supaya muat di context window server
-    yang kecil. Hasil semua potongan digabung.
+    yang kecil. Hasil semua potongan digabung. `client` = server VLM.
     """
     semua_item, gagal = [], 0
 
@@ -958,8 +972,8 @@ def _gabung_baris(batch: list, rows) -> list:
     return hasil
 
 
-def ekstrak_identitas(client: OpenAI, teks_klaim: str, gambar_halaman: list = None) -> dict:
-    """Identitas pasien diekstrak dari teks klaim atau gambar cover/scan pertama kalau teks minim."""
+def ekstrak_identitas(client: OpenAI, teks_klaim: str, gambar_halaman: list = None, client_vlm: OpenAI = None) -> dict:
+    """Identitas pasien diekstrak dari teks klaim (server LLM) atau gambar cover/scan pertama (server VLM) kalau teks minim."""
     bagian = [b for b in re.split(r"(?==== DOKUMEN: )", teks_klaim) if b.strip()]
     batas_total = 12000
     per_dokumen = max(batas_total // max(len(bagian), 1), 1500)
@@ -976,17 +990,23 @@ KUTIPAN:
 """
     content = [{"type": "text", "text": prompt}]
     # Jika teks klaim sangat sedikit dan ada gambar scan (halaman pertama biasanya resume medis / form pengajuan)
-    if len(kutipan.strip()) < 300 and gambar_halaman:
+    pakai_gambar = bool(len(kutipan.strip()) < 300 and gambar_halaman)
+    if pakai_gambar:
         b64 = base64.b64encode(gambar_halaman[0]).decode()
         content = [
             {"type": "text", "text": "Dari gambar dokumen klaim ini (halaman depan/resume medis), ambil identitas pasien dan data rawat. Jawab HANYA JSON object dengan format: {\"nama_pasien\": \"\", \"no_peserta\": \"\", \"rumah_sakit\": \"\", \"tgl_masuk\": \"\", \"tgl_keluar\": \"\", \"program\": \"\", \"diagnosa\": \"\"}"},
             {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
         ]
 
+    # Gambar -> server VLM; teks saja -> server LLM
+    c = (client_vlm or client) if pakai_gambar else client
+    model = MODEL_EKSTRAKSI if pakai_gambar else MODEL_ANALISIS
+    ctx = VLM_MAX_CONTEXT if pakai_gambar else LLM_MAX_CONTEXT
+
     idn = {}
     try:
         resp = panggil_llm(
-            client, label="identitas", model=MODEL_ANALISIS,
+            c, label="identitas", model=model, max_context=ctx,
             messages=[{"role": "user", "content": content}],
             response_format={"type": "json_object"}, max_tokens=600, temperature=0,
         )
@@ -1007,7 +1027,7 @@ KUTIPAN:
     return hasil
 
 
-def _analisis_klaim_berjenjang(client: OpenAI, system_prompt: str, teks_klaim: str, items: list, gambar_halaman: list = None) -> dict:
+def _analisis_klaim_berjenjang(client: OpenAI, system_prompt: str, teks_klaim: str, items: list, gambar_halaman: list = None, client_vlm: OpenAI = None) -> dict:
     """
     Jalur untuk context kecil. LLM hanya dipakai untuk (a) mencocokkan tarif per batch kecil dan
     (b) mengekstrak identitas. Angka, status, dan rekap dihitung di Python (validasi_hasil).
@@ -1020,7 +1040,7 @@ def _analisis_klaim_berjenjang(client: OpenAI, system_prompt: str, teks_klaim: s
         batch = items[b * ANALISIS_BATCH_ITEM:(b + 1) * ANALISIS_BATCH_ITEM]
         rows = _analisis_satu_batch(client, batch, f"analisis batch {b + 1}/{n_batch}")
         baris_tabel.extend(_gabung_baris(batch, rows))
-    return {"identitas": ekstrak_identitas(client, teks_klaim, gambar_halaman), "tabel_item": baris_tabel}
+    return {"identitas": ekstrak_identitas(client, teks_klaim, gambar_halaman, client_vlm=client_vlm), "tabel_item": baris_tabel}
 
 
 # ---------------------------------------------------------------------------
@@ -1308,11 +1328,12 @@ def _tulis_narasi(client: OpenAI, hasil: dict, system_prompt: str = "", teks_kla
 
 
 def analisis_klaim(
-    client: OpenAI, system_prompt: str, teks_klaim: str, items_dengan_tarif: list, gambar_halaman: list = None
+    client: OpenAI, system_prompt: str, teks_klaim: str, items_dengan_tarif: list, gambar_halaman: list = None, client_vlm: OpenAI = None
 ) -> dict:
     """
     Pilih analisis penuh (1 panggilan) kalau prompt SEBENARNYA muat, selain itu berjenjang. Keputusan memakai
     prompt yang benar-benar disusun (bukan perkiraan terpisah yang bisa meleset karena format JSON berbeda).
+    `client` = server LLM (analisis). `client_vlm` = server VLM, hanya dipakai kalau identitas harus dibaca dari gambar.
     """
     items_agregat = [i for i in items_dengan_tarif if i.get("_agregat")]
     items = [i for i in items_dengan_tarif if not i.get("_agregat")]
@@ -1339,7 +1360,7 @@ def analisis_klaim(
         return validasi_hasil(hasil, items, items_agregat)
 
     print(f"      [INFO] Memakai analisis berjenjang ({ANALISIS_BATCH_ITEM} item per panggilan).")
-    hasil = _analisis_klaim_berjenjang(client, system_prompt, teks_klaim, items, gambar_halaman=gambar_halaman)
+    hasil = _analisis_klaim_berjenjang(client, system_prompt, teks_klaim, items, gambar_halaman=gambar_halaman, client_vlm=client_vlm)
     hasil = validasi_hasil(hasil, items, items_agregat, hitung_ulang=True)
     _tulis_narasi(client, hasil, system_prompt, teks_klaim)
     return hasil
@@ -1574,14 +1595,18 @@ def main():
     parser.add_argument("--kode-rs", required=True, help="Kode rumah sakit (harus ada di tabel rumahsakit & sudah punya dokumen tarif di dokumen_chunk)")
     parser.add_argument("--claim-docs", required=True, nargs="+", help="Satu atau lebih file PDF dokumen klaim (invoice, resume medis, PLKK, dst)")
     parser.add_argument("--dsn", required=True, help="Connection string PostgreSQL")
-    parser.add_argument("--llm-base-url", default=os.environ.get("LLM_BASE_URL"), help="URL tunnel vLLM, contoh: https://xxxx.trycloudflare.com/v1 (default: env LLM_BASE_URL)")
-    parser.add_argument("--llm-api-key", default=os.environ.get("LLM_API_KEY", "EMPTY"), help="API key vLLM, isi EMPTY kalau server tanpa auth (default: env LLM_API_KEY)")
+    parser.add_argument("--llm-base-url", default=os.environ.get("LLM_BASE_URL"), help="URL server LLM (analisis), contoh: https://xxxx.trycloudflare.com/v1 (default: env LLM_BASE_URL)")
+    parser.add_argument("--llm-api-key", default=os.environ.get("LLM_API_KEY", "EMPTY"), help="API key server LLM, isi EMPTY kalau server tanpa auth (default: env LLM_API_KEY)")
+    parser.add_argument("--vlm-base-url", default=os.environ.get("VLM_BASE_URL"), help="URL server VLM (baca dokumen/gambar), default: env VLM_BASE_URL; kalau kosong memakai server LLM")
+    parser.add_argument("--vlm-api-key", default=os.environ.get("VLM_API_KEY", "EMPTY"), help="API key server VLM (default: env VLM_API_KEY)")
     parser.add_argument("--out-dir", default="./laporan_klaim", help="Folder output laporan")
     parser.add_argument("--resume-cache", default=None, help="Path ke file cache _items_*.json dari run sebelumnya, lanjut langsung ke tahap analisis (skip baca PDF + ekstraksi + vector search)")
     args = parser.parse_args()
 
     if not args.llm_base_url:
-        sys.exit("URL vLLM tidak ditemukan. Isi LLM_BASE_URL di file .env, atau pakai --llm-base-url.")
+        sys.exit("URL server LLM tidak ditemukan. Isi LLM_BASE_URL di file .env, atau pakai --llm-base-url.")
+    vlm_url = args.vlm_base_url or args.llm_base_url   # fallback: satu server untuk keduanya
+    vlm_key = args.vlm_api_key if args.vlm_base_url else args.llm_api_key
 
     if not SYSTEM_PROMPT_PATH.exists():
         sys.exit(f"File system prompt tidak ditemukan: {SYSTEM_PROMPT_PATH}")
@@ -1589,9 +1614,11 @@ def main():
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    client = buat_llm_client(args.llm_base_url, args.llm_api_key)
+    client_llm = buat_llm_client(args.llm_base_url, args.llm_api_key)   # analisis / interpretasi
+    client_vlm = buat_llm_client(vlm_url, vlm_key)                      # baca dokumen / gambar
     try:
-        cek_server_llm(client)
+        cek_server_llm(client_vlm, [MODEL_EKSTRAKSI])
+        cek_server_llm(client_llm, [MODEL_ANALISIS])
     except RuntimeError as e:
         sys.exit(str(e))
     system_prompt = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
@@ -1608,8 +1635,8 @@ def main():
         print("[1/5] Membaca dokumen klaim")
         teks_klaim, gambar_halaman = baca_semua_dokumen_klaim(args.claim_docs)
 
-        print(f"[2/5] Ekstraksi item tagihan (model: {MODEL_EKSTRAKSI})")
-        items = ekstrak_item_tagihan(client, teks_klaim, gambar_halaman)
+        print(f"[2/5] Ekstraksi item tagihan (VLM: {MODEL_EKSTRAKSI})")
+        items = ekstrak_item_tagihan(client_vlm, teks_klaim, gambar_halaman)
         print(f"      -> {len(items)} item tagihan ditemukan")
 
         print("[3/5] Mencari tarif pembanding di database (vector search)")
@@ -1633,8 +1660,8 @@ def main():
         teks_klaim = teks_path.read_text(encoding="utf-8") if teks_path.exists() else ""
         gambar_halaman = []
 
-    print(f"[4/5] Analisis akhir (model: {MODEL_ANALISIS})")
-    hasil = analisis_klaim(client, system_prompt, teks_klaim, items, gambar_halaman=gambar_halaman)
+    print(f"[4/5] Analisis akhir (LLM: {MODEL_ANALISIS})")
+    hasil = analisis_klaim(client_llm, system_prompt, teks_klaim, items, gambar_halaman=gambar_halaman, client_vlm=client_vlm)
 
     print("[5/5] Menyimpan laporan")
     md_path = out_dir / f"{stem}.md"
